@@ -1,4 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) app for collecting English to Igbo
+education translation and TTS data.
+
+## Auth and Roles
+
+The first workflow slice is implemented:
+
+- MongoDB-backed users
+- Password login and registration
+- Signed HTTP-only session cookies
+- Role-protected pages for Content Admin, Igbo Teacher, Reviewer, Dataset Admin, and Admin
+- Admin user-role management at `/admin/users`
+
+The account `chimanwakis@gmail.com` is always treated as the protected super-admin
+and receives every role automatically when that email registers or logs in.
+
+Create `.env` from `.env.example`, then replace `MONGODB_URI` with your MongoDB
+Atlas connection string.
 
 ## Getting Started
 
@@ -15,10 +32,11 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If that port is busy, Next.js will print the alternate local URL in the terminal.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+You can start editing the page by modifying `src/app/page.tsx`. The page auto-updates as you edit the file.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This project uses the App Router, TypeScript, ESLint, and Tailwind CSS.
 
 ## Learn More
 
