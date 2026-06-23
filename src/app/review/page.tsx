@@ -145,8 +145,8 @@ export default async function ReviewPage() {
     <AccessShell user={user} eyebrow="Reviewer" title="Review queue">
       <div className="grid gap-5">
         <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-600 shadow-sm sm:px-5">
-          Each content record appears once in this queue. Open the record to
-          review translation and audio separately.
+          This page only shows submitted work that still needs a reviewer.
+          Approved records and teacher correction work stay out of this queue.
         </section>
         {queue.groups.map((group) => (
           <ReviewGroup key={group.key} group={group} />

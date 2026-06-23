@@ -266,10 +266,7 @@ export type ContentRecordPage = {
 
 export type ReviewQueueGroupKey =
   | "awaiting_translation_review"
-  | "awaiting_audio_review"
-  | "translation_approved_audio_rejected"
-  | "audio_approved_translation_rejected"
-  | "fully_approved";
+  | "awaiting_audio_review";
 
 export type ReviewRecordSummary = {
   id: string;
@@ -459,7 +456,7 @@ function serializeTeacherTaskSummary(
     subtopic: record.curriculum.subtopic,
     content_type: record.curriculum.content_type,
     has_math: record.math.has_math,
-    math_status: record.math.math_status,
+    math_status: resolvedMathStatus(record),
     translation_status: record.review.translation_status,
     audio_status: record.review.audio_status,
     task_status: taskStatus(record),
@@ -502,7 +499,7 @@ function serializeReviewRecordSummary(
     subtopic: record.curriculum.subtopic,
     content_type: record.curriculum.content_type,
     has_math: record.math.has_math,
-    math_status: record.math.math_status,
+    math_status: resolvedMathStatus(record),
     translation_status: record.review.translation_status,
     audio_status: record.review.audio_status,
     overall_status: overallStatusForRecord(record),
@@ -522,7 +519,7 @@ function serializeContentRecordSummary(
     subtopic: record.curriculum.subtopic,
     content_type: record.curriculum.content_type,
     has_math: record.math.has_math,
-    math_status: record.math.math_status,
+    math_status: resolvedMathStatus(record),
     translation_status: record.review.translation_status,
     audio_status: record.review.audio_status,
     overall_status: overallStatusForRecord(record),
@@ -570,6 +567,60 @@ function canAccessTeacherRecord(record: ContentRecordDocument, user: PublicUser)
   );
 }
 
+function approvedMathStatusForReview(input: {
+  record: ContentRecordDocument;
+  translation_status: TranslationStatus;
+  audio_status: AudioStatus;
+}): MathStatus {
+  if (!input.record.math.has_math) {
+    return "not_applicable";
+  }
+
+  if (
+    input.record.math.math_status === "pending_review" &&
+    input.translation_status === "approved"
+  ) {
+    return "approved";
+  }
+
+  return input.record.math.math_status;
+}
+
+function mathApprovalPatch(input: {
+  record: ContentRecordDocument;
+  next_math_status: MathStatus;
+}) {
+  const shouldUpdateMath =
+    input.record.math.math_status !== input.next_math_status;
+
+  if (!shouldUpdateMath) {
+    return {};
+  }
+
+  return {
+    "math.math_status": input.next_math_status,
+    ...(input.record.math.items.length
+      ? { "math.items.$[].review_status": "approved" as const }
+      : {}),
+  };
+}
+
+function resolvedMathStatus(record: ContentRecordDocument): MathStatus {
+  return approvedMathStatusForReview({
+    record,
+    translation_status: record.review.translation_status,
+    audio_status: record.review.audio_status,
+  });
+}
+
+function isTranslationLocked(record: ContentRecordDocument) {
+  return record.review.translation_status === "approved";
+}
+
+function isAudioLocked(record: ContentRecordDocument) {
+  return record.review.audio_status === "approved";
+}
+
 function teacherAccessQuery(user: PublicUser) {
   if (user.roles.includes("admin")) {
     return {};
@@ -613,25 +664,43 @@ function textSearchFilter(q?: string): Filter<ContentRecordDocument> {
 function statusSearchFilter(
   filters?: StatusSearchFilters,
 ): Filter<ContentRecordDocument> {
-  const query: Filter<ContentRecordDocument> = {};
+  const queryParts: Array<Filter<ContentRecordDocument>> = [];
 
   if (filters?.math_status) {
-    query["math.math_status"] = filters.math_status;
+    if (filters.math_status === "approved") {
+      queryParts.push({
+        $or: [
+          { "math.math_status": "approved" },
+          {
+            "math.has_math": true,
+            "math.math_status": "pending_review",
+            "review.translation_status": "approved",
+          },
+        ],
+      });
+    } else if (filters.math_status === "pending_review") {
+      queryParts.push({
+        "math.math_status": "pending_review",
+        "review.translation_status": { $ne: "approved" },
+      });
+    } else {
+      queryParts.push({ "math.math_status": filters.math_status });
+    }
   }
 
   if (filters?.translation_status) {
-    query["review.translation_status"] = filters.translation_status;
+    queryParts.push({ "review.translation_status": filters.translation_status });
   }
 
   if (filters?.audio_status) {
-    query["review.audio_status"] = filters.audio_status;
+    queryParts.push({ "review.audio_status": filters.audio_status });
   }
 
   if (filters?.overall_status) {
-    query["review.overall_status"] = filters.overall_status;
+    queryParts.push({ "review.overall_status": filters.overall_status });
   }
 
-  return query;
+  return andFilters(queryParts);
 }
 
 function taskStatusFilter(
@@ -942,33 +1011,6 @@ const reviewQueueGroups = [
       "review.translation_status": { $ne: "submitted" },
     },
   },
-  {
-    key: "translation_approved_audio_rejected",
-    title: "Translation approved, audio rejected",
-    description: "Only the audio needs another attempt.",
-    filter: {
-      "review.translation_status": "approved",
-      "review.audio_status": { $in: ["rejected", "needs_rerecording"] },
-    },
-  },
-  {
-    key: "audio_approved_translation_rejected",
-    title: "Audio approved, translation rejected",
-    description: "The recording is good, but the Igbo text needs revision.",
-    filter: {
-      "review.audio_status": "approved",
-      "review.translation_status": { $in: ["rejected", "needs_revision"] },
-    },
-  },
-  {
-    key: "fully_approved",
-    title: "Fully approved",
-    description: "Both the translation and audio are approved.",
-    filter: {
-      "review.translation_status": "approved",
-      "review.audio_status": "approved",
-    },
-  },
 ] satisfies Array<{
   key: ReviewQueueGroupKey;
   title: string;
@@ -1127,7 +1169,7 @@ function overallStatusForRecord(
     translation_status:
       overrides?.translation_status ?? record.review.translation_status,
     audio_status: overrides?.audio_status ?? record.review.audio_status,
-    math_status: overrides?.math_status ?? record.math.math_status,
+    math_status: overrides?.math_status ?? resolvedMathStatus(record),
     assigned_to: overrides?.assigned_to ?? record.assignment.assigned_to,
     has_target_text:
       overrides?.has_target_text ??
@@ -1178,9 +1220,19 @@ export async function reviewTranslation(input: {
     throw new Error("There is no Igbo translation to review yet.");
   }
 
+  if (isTranslationLocked(record)) {
+    throw new Error("This translation is already approved and can only be viewed.");
+  }
+
   const nextTranslationStatus: TranslationStatus = input.decision;
+  const nextMathStatus = approvedMathStatusForReview({
+    record,
+    translation_status: nextTranslationStatus,
+    audio_status: record.review.audio_status,
+  });
   const nextOverall = overallStatusForRecord(record, {
     translation_status: nextTranslationStatus,
+    math_status: nextMathStatus,
   });
   const now = new Date();
   const event = reviewEvent({
@@ -1197,6 +1249,7 @@ export async function reviewTranslation(input: {
     { _id: record._id },
     {
       $set: {
+        ...mathApprovalPatch({ record, next_math_status: nextMathStatus }),
         "review.translation_status": nextTranslationStatus,
         "review.translation_comments": input.comments?.trim() ?? "",
         "review.overall_status": nextOverall,
@@ -1233,9 +1286,19 @@ export async function reviewAudio(input: {
     throw new Error("There is no audio to review yet.");
   }
 
+  if (isAudioLocked(record)) {
+    throw new Error("This audio is already approved and can only be viewed.");
+  }
+
   const nextAudioStatus: AudioStatus = input.decision;
+  const nextMathStatus = approvedMathStatusForReview({
+    record,
+    translation_status: record.review.translation_status,
+    audio_status: nextAudioStatus,
+  });
   const nextOverall = overallStatusForRecord(record, {
     audio_status: nextAudioStatus,
+    math_status: nextMathStatus,
   });
   const now = new Date();
   const event = reviewEvent({
@@ -1253,6 +1316,7 @@ export async function reviewAudio(input: {
     { _id: record._id },
     {
       $set: {
+        ...mathApprovalPatch({ record, next_math_status: nextMathStatus }),
         "review.audio_status": nextAudioStatus,
         "review.audio_comments": input.comments?.trim() ?? "",
         "review.overall_status": nextOverall,
@@ -1286,6 +1350,10 @@ export async function submitTeacherTranslation(input: {
 
   if (!record || !canAccessTeacherRecord(record, input.user)) {
     throw new Error("Task was not found.");
+  }
+
+  if (isTranslationLocked(record)) {
+    throw new Error("This translation is approved and can only be viewed.");
   }
 
   const targetText = input.target_text_for_model.trim();
@@ -1435,6 +1503,10 @@ export async function createTeacherAudioUploadPlan(input: {
     throw new Error("Task was not found.");
   }
 
+  if (isAudioLocked(record)) {
+    throw new Error("This audio is approved and can only be viewed.");
+  }
+
   const finalTtsText = record.target_content.final_igbo_tts_text.trim();
 
   if (!record.target_content.target_text_for_model.trim() || !finalTtsText) {
@@ -1488,6 +1560,10 @@ export async function completeTeacherAudioSubmission(input: {
 
   if (!record || !canAccessTeacherRecord(record, input.user)) {
     throw new Error("Task was not found.");
+  }
+
+  if (isAudioLocked(record)) {
+    throw new Error("This audio is approved and can only be viewed.");
   }
 
   const now = new Date();

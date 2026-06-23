@@ -4,7 +4,9 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  type AudioStatus,
   type AudioReviewDecision,
+  type TranslationStatus,
   type TranslationReviewDecision,
 } from "@/lib/models/contentRecord";
 
@@ -116,12 +118,25 @@ function DecisionOption<TDecision extends string>({
   );
 }
 
+function ViewOnlyCard({ title, message }: { title: string; message: string }) {
+  return (
+    <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+      <h2 className="text-lg font-semibold text-emerald-950">{title}</h2>
+      <p className="mt-1 text-sm leading-6 text-emerald-900">{message}</p>
+    </section>
+  );
+}
+
 export function ReviewDecisionClient({
   recordId,
   hasAudio,
+  translationStatus,
+  audioStatus,
 }: {
   recordId: string;
   hasAudio: boolean;
+  translationStatus: TranslationStatus;
+  audioStatus: AudioStatus;
 }) {
   const router = useRouter();
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -136,6 +151,8 @@ export function ReviewDecisionClient({
     useState<AudioReviewDecision>("approved");
   const [audioReason, setAudioReason] = useState("");
   const [audioComments, setAudioComments] = useState("");
+  const translationLocked = translationStatus === "approved";
+  const audioLocked = audioStatus === "approved";
 
   function showNotice(nextNotice: Notice) {
     setNotice(nextNotice);
@@ -256,157 +273,171 @@ export function ReviewDecisionClient({
     <div className="grid gap-4">
       <FeedbackDialog notice={notice} onClose={() => setNotice(null)} />
 
-      <form
-        onSubmit={submitTranslation}
-        className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">
-            Translation review
-          </h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            This decision only affects the Igbo text.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <DecisionOption
-            name="translation-decision"
-            value="approved"
-            checked={translationDecision === "approved"}
-            onChange={setTranslationDecision}
-          >
-            Approve translation
-          </DecisionOption>
-          <DecisionOption
-            name="translation-decision"
-            value="rejected"
-            checked={translationDecision === "rejected"}
-            onChange={setTranslationDecision}
-          >
-            Reject translation
-          </DecisionOption>
-          <DecisionOption
-            name="translation-decision"
-            value="needs_revision"
-            checked={translationDecision === "needs_revision"}
-            onChange={setTranslationDecision}
-          >
-            Request minor edit
-          </DecisionOption>
-        </div>
-
-        {translationDecision !== "approved" ? (
-          <label className="grid gap-2 text-sm font-medium text-slate-700">
-            Reason
-            <select
-              value={translationReason}
-              onChange={(event) => setTranslationReason(event.target.value)}
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
-            >
-              <option value="">Choose a reason</option>
-              {translationReasons.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-
-        <label className="grid gap-2 text-sm font-medium text-slate-700">
-          Comments
-          <textarea
-            value={translationComments}
-            onChange={(event) => setTranslationComments(event.target.value)}
-            rows={4}
-            className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-sm leading-6 text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled={submitting === "translation"}
-          className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+      {translationLocked ? (
+        <ViewOnlyCard
+          title="Translation approved"
+          message="The Igbo text is locked. You can view it, but you cannot change this decision here."
+        />
+      ) : (
+        <form
+          onSubmit={submitTranslation}
+          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
         >
-          {submitting === "translation" ? "Saving..." : "Save translation review"}
-        </button>
-      </form>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">
+              Translation review
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              This decision only affects the Igbo text.
+            </p>
+          </div>
 
-      <form
-        onSubmit={submitAudio}
-        className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">Audio review</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            This decision only affects the recording.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <DecisionOption
-            name="audio-decision"
-            value="approved"
-            checked={audioDecision === "approved"}
-            onChange={setAudioDecision}
-          >
-            Approve audio
-          </DecisionOption>
-          <DecisionOption
-            name="audio-decision"
-            value="rejected"
-            checked={audioDecision === "rejected"}
-            onChange={setAudioDecision}
-          >
-            Reject audio
-          </DecisionOption>
-          <DecisionOption
-            name="audio-decision"
-            value="needs_rerecording"
-            checked={audioDecision === "needs_rerecording"}
-            onChange={setAudioDecision}
-          >
-            Request re-recording
-          </DecisionOption>
-        </div>
-
-        {audioDecision !== "approved" ? (
-          <label className="grid gap-2 text-sm font-medium text-slate-700">
-            Reason
-            <select
-              value={audioReason}
-              onChange={(event) => setAudioReason(event.target.value)}
-              className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+          <div className="grid gap-2">
+            <DecisionOption
+              name="translation-decision"
+              value="approved"
+              checked={translationDecision === "approved"}
+              onChange={setTranslationDecision}
             >
-              <option value="">Choose a reason</option>
-              {audioReasons.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
+              Approve translation
+            </DecisionOption>
+            <DecisionOption
+              name="translation-decision"
+              value="rejected"
+              checked={translationDecision === "rejected"}
+              onChange={setTranslationDecision}
+            >
+              Reject translation
+            </DecisionOption>
+            <DecisionOption
+              name="translation-decision"
+              value="needs_revision"
+              checked={translationDecision === "needs_revision"}
+              onChange={setTranslationDecision}
+            >
+              Request minor edit
+            </DecisionOption>
+          </div>
+
+          {translationDecision !== "approved" ? (
+            <label className="grid gap-2 text-sm font-medium text-slate-700">
+              Reason
+              <select
+                value={translationReason}
+                onChange={(event) => setTranslationReason(event.target.value)}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+              >
+                <option value="">Choose a reason</option>
+                {translationReasons.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reason}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          <label className="grid gap-2 text-sm font-medium text-slate-700">
+            Comments
+            <textarea
+              value={translationComments}
+              onChange={(event) => setTranslationComments(event.target.value)}
+              rows={4}
+              className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-sm leading-6 text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+            />
           </label>
-        ) : null}
 
-        <label className="grid gap-2 text-sm font-medium text-slate-700">
-          Comments
-          <textarea
-            value={audioComments}
-            onChange={(event) => setAudioComments(event.target.value)}
-            rows={4}
-            className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-sm leading-6 text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
-          />
-        </label>
+          <button
+            type="submit"
+            disabled={submitting === "translation"}
+            className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            {submitting === "translation" ? "Saving..." : "Save translation review"}
+          </button>
+        </form>
+      )}
 
-        <button
-          type="submit"
-          disabled={submitting === "audio"}
-          className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+      {audioLocked ? (
+        <ViewOnlyCard
+          title="Audio approved"
+          message="The recording is locked. You can listen to it, but you cannot change this decision here."
+        />
+      ) : (
+        <form
+          onSubmit={submitAudio}
+          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
         >
-          {submitting === "audio" ? "Saving..." : "Save audio review"}
-        </button>
-      </form>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Audio review</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              This decision only affects the recording.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <DecisionOption
+              name="audio-decision"
+              value="approved"
+              checked={audioDecision === "approved"}
+              onChange={setAudioDecision}
+            >
+              Approve audio
+            </DecisionOption>
+            <DecisionOption
+              name="audio-decision"
+              value="rejected"
+              checked={audioDecision === "rejected"}
+              onChange={setAudioDecision}
+            >
+              Reject audio
+            </DecisionOption>
+            <DecisionOption
+              name="audio-decision"
+              value="needs_rerecording"
+              checked={audioDecision === "needs_rerecording"}
+              onChange={setAudioDecision}
+            >
+              Request re-recording
+            </DecisionOption>
+          </div>
+
+          {audioDecision !== "approved" ? (
+            <label className="grid gap-2 text-sm font-medium text-slate-700">
+              Reason
+              <select
+                value={audioReason}
+                onChange={(event) => setAudioReason(event.target.value)}
+                className="h-11 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+              >
+                <option value="">Choose a reason</option>
+                {audioReasons.map((reason) => (
+                  <option key={reason} value={reason}>
+                    {reason}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          <label className="grid gap-2 text-sm font-medium text-slate-700">
+            Comments
+            <textarea
+              value={audioComments}
+              onChange={(event) => setAudioComments(event.target.value)}
+              rows={4}
+              className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-sm leading-6 text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={submitting === "audio"}
+            className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            {submitting === "audio" ? "Saving..." : "Save audio review"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

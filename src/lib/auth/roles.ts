@@ -150,5 +150,9 @@ export function requiredRolesForPath(pathname: string): Role[] | null {
     return ["dataset_admin"];
   }
 
+  if (pathname.startsWith("/api/datasets")) {
+    return ["dataset_admin"];
+  }
+
   return null;
 }

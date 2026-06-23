@@ -393,7 +393,12 @@ export default async function ReviewDetailPage({
           <PreviousComments record={record} />
         </div>
 
-        <ReviewDecisionClient recordId={record.id} hasAudio={Boolean(record.audio_url)} />
+        <ReviewDecisionClient
+          recordId={record.id}
+          hasAudio={Boolean(record.audio_url)}
+          translationStatus={record.translation_status}
+          audioStatus={record.audio_status}
+        />
       </div>
     </AccessShell>
   );

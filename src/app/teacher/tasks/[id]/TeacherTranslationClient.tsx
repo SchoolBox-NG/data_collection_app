@@ -316,9 +316,15 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
     [],
   );
   const placeholders = useMemo(() => visiblePlaceholders(task), [task]);
+  const translationLocked = task.translation_status === "approved";
+  const audioLocked = task.audio_status === "approved";
+  const fullyApproved = translationLocked && audioLocked;
   const finalTtsText = useMemo(
-    () => buildFinalTtsText({ targetText, mathItems: task.math_items }),
-    [targetText, task.math_items],
+    () =>
+      translationLocked && task.final_igbo_tts_text
+        ? task.final_igbo_tts_text
+        : buildFinalTtsText({ targetText, mathItems: task.math_items }),
+    [targetText, task.math_items, task.final_igbo_tts_text, translationLocked],
   );
 
   useEffect(() => {
@@ -376,11 +382,19 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
   }
 
   function updateTargetText(nextText: string) {
+    if (translationLocked) {
+      return;
+    }
+
     setTargetText(nextText);
     setAudioConfirmed(false);
   }
 
   function insertPlaceholder(placeholder: string) {
+    if (translationLocked) {
+      return;
+    }
+
     const textarea = textareaRef.current;
 
     if (!textarea) {
@@ -416,6 +430,11 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
   }
 
   async function startRecording() {
+    if (audioLocked) {
+      showError("This audio is approved and can only be viewed.");
+      return;
+    }
+
     setRecordingError("");
     clearNotice();
 
@@ -504,6 +523,11 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
   }
 
   async function reRecord() {
+    if (audioLocked) {
+      showError("This audio is approved and can only be viewed.");
+      return;
+    }
+
     clearSelectedAudio();
 
     if (isRecording) {
@@ -518,6 +542,11 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
     event.target.value = "";
 
     if (!file) {
+      return;
+    }
+
+    if (audioLocked) {
+      showError("This audio is approved and can only be viewed.");
       return;
     }
 
@@ -569,6 +598,12 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (translationLocked) {
+      showError("This translation is approved and can only be viewed.");
+      return;
+    }
+
     setSaving(true);
     clearNotice();
     setGlossaryIssues([]);
@@ -590,6 +625,11 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
   async function handleAudioSubmit() {
     clearNotice();
     setRecordingError("");
+
+    if (audioLocked) {
+      showError("This audio is approved and can only be viewed.");
+      return;
+    }
 
     if (!targetText.trim()) {
       showError("Write the Igbo translation before sending audio.");
@@ -623,7 +663,9 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
     setSavingAudio(true);
 
     try {
-      const translation = await saveTranslation({ showSuccess: false });
+      const translation = translationLocked
+        ? { final_igbo_tts_text: finalTtsText }
+        : await saveTranslation({ showSuccess: false });
       const formData = new FormData();
       formData.append("audio", audioFile);
       formData.append(
@@ -661,6 +703,28 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
     <form onSubmit={handleSubmit} className="grid gap-5">
       <FeedbackDialog notice={notice} onClose={clearNotice} />
 
+      {fullyApproved ? (
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-sm font-semibold text-emerald-950">
+            This task is fully approved
+          </p>
+          <p className="mt-1 text-sm leading-6 text-emerald-900">
+            You can view the translation and listen to the audio, but no more
+            changes can be made here.
+          </p>
+        </section>
+      ) : translationLocked ? (
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-sm font-semibold text-emerald-950">
+            Translation approved
+          </p>
+          <p className="mt-1 text-sm leading-6 text-emerald-900">
+            The Igbo text is locked. If the audio needs work, only record or
+            upload a new WAV file.
+          </p>
+        </section>
+      ) : null}
+
       <section className="grid gap-3">
         <label className="grid gap-2 text-sm font-medium text-slate-700">
           Igbo translation
@@ -668,8 +732,10 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
             ref={textareaRef}
             value={targetText}
             onChange={(event) => updateTargetText(event.target.value)}
+            readOnly={translationLocked}
+            disabled={translationLocked}
             rows={7}
-            className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-base leading-7 text-slate-950 outline-none transition focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+            className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-base leading-7 text-slate-950 outline-none transition focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-700"
           />
         </label>
 
@@ -684,7 +750,8 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
                   key={item.placeholder}
                   type="button"
                   onClick={() => insertPlaceholder(item.placeholder)}
-                  className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100"
+                  disabled={translationLocked}
+                  className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
                   title={item.spoken_igbo}
                 >
                   {item.placeholder}
@@ -727,7 +794,7 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
           <button
             type="button"
             onClick={startRecording}
-            disabled={isRecording}
+            disabled={isRecording || audioLocked}
             className="h-11 rounded-md bg-slate-800 px-4 text-sm font-semibold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             Start recording
@@ -735,7 +802,7 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
           <button
             type="button"
             onClick={stopRecording}
-            disabled={!isRecording}
+            disabled={!isRecording || audioLocked}
             className="h-11 rounded-md bg-red-700 px-4 text-sm font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             Stop
@@ -751,18 +818,26 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
           <button
             type="button"
             onClick={reRecord}
-            className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            disabled={audioLocked}
+            className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
           >
             Record again
           </button>
         </div>
 
-        <label className="inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-100">
+        <label
+          className={`inline-flex h-11 w-full items-center justify-center rounded-md border px-4 text-sm font-semibold transition ${
+            audioLocked
+              ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+              : "cursor-pointer border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+          }`}
+        >
           Upload WAV file
           <input
             type="file"
             accept=".wav,audio/wav"
             onChange={handleAudioFile}
+            disabled={audioLocked}
             className="sr-only"
           />
         </label>
@@ -817,6 +892,7 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
             type="checkbox"
             checked={audioConfirmed}
             onChange={(event) => setAudioConfirmed(event.target.checked)}
+            disabled={audioLocked}
             className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600"
           />
           <span>
@@ -827,10 +903,14 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
         <button
           type="button"
           onClick={handleAudioSubmit}
-          disabled={savingAudio}
+          disabled={savingAudio || audioLocked}
           className="h-12 w-full rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          {savingAudio ? "Sending audio..." : "Send for review"}
+          {audioLocked
+            ? "Audio approved"
+            : savingAudio
+              ? "Sending audio..."
+              : "Send for review"}
         </button>
       </section>
 
@@ -839,8 +919,10 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
         <textarea
           value={teacherNotes}
           onChange={(event) => setTeacherNotes(event.target.value)}
+          readOnly={translationLocked}
+          disabled={translationLocked}
           rows={4}
-          className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-base leading-7 text-slate-950 outline-none transition focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+          className="resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-base leading-7 text-slate-950 outline-none transition focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-700"
         />
       </label>
 
@@ -854,10 +936,14 @@ export function TeacherTranslationClient({ task }: { task: TeacherTaskDetail }) 
 
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || translationLocked}
         className="h-12 w-full rounded-md border border-emerald-700 px-5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
       >
-        {saving ? "Saving..." : "Save translation only"}
+        {translationLocked
+          ? "Translation approved"
+          : saving
+            ? "Saving..."
+            : "Save translation only"}
       </button>
     </form>
   );
