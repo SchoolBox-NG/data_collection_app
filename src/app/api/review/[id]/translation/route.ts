@@ -18,6 +18,10 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function readOptionalString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -34,6 +38,8 @@ export async function POST(
         decision?: unknown;
         reason?: unknown;
         comments?: unknown;
+        target_text_for_model?: unknown;
+        final_igbo_tts_text?: unknown;
       }
     | null;
   const decision = readString(body?.decision) as TranslationReviewDecision;
@@ -52,6 +58,8 @@ export async function POST(
       decision,
       reason: readString(body?.reason),
       comments: readString(body?.comments),
+      target_text_for_model: readOptionalString(body?.target_text_for_model),
+      final_igbo_tts_text: readOptionalString(body?.final_igbo_tts_text),
     });
 
     return NextResponse.json(result);

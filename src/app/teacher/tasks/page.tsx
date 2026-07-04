@@ -25,7 +25,12 @@ const taskStatusLabels: Record<TeacherTaskStatus, string> = {
   approved: "Approved",
 };
 
-const taskStatuses = Object.keys(taskStatusLabels) as TeacherTaskStatus[];
+const taskStatuses = [
+  "not_started",
+  "in_progress",
+  "translation_rejected",
+  "audio_rejected",
+] satisfies TeacherTaskStatus[];
 const translationStatuses = [
   "not_started",
   "draft",
@@ -314,7 +319,7 @@ function TeacherFilters({
           name="taskStatus"
           value={filters.task_status}
           options={taskStatuses}
-          allLabel="All work"
+          allLabel="All active work"
         />
         <SelectFilter
           label="Translation"
@@ -438,8 +443,8 @@ export default async function TeacherTasksPage({
         <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
           <h2 className="text-lg font-semibold text-slate-950">Assigned content</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            Translate the source text, keep placeholders intact, and prepare the
-            text that will be read for audio.
+            Tasks shown here still need translation, audio, or corrections.
+            Submitted and fully approved work is hidden from this queue.
           </p>
         </div>
         <TeacherFilters filters={filters} pageSize={taskPage.pageSize} />
@@ -454,7 +459,7 @@ export default async function TeacherTasksPage({
           <div className="px-4 py-10 text-sm text-slate-600 sm:px-6">
             {hasFilters
               ? "No teacher tasks match these filters."
-              : "No teacher tasks are assigned yet."}
+              : "No teacher tasks need action right now."}
           </div>
         )}
         {tasks.length ? (

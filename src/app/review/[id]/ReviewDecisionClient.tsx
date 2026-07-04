@@ -105,7 +105,13 @@ function DecisionOption<TDecision extends string>({
   children: string;
 }) {
   return (
-    <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800">
+    <label
+      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2.5 text-sm font-semibold transition ${
+        checked
+          ? "border-emerald-300 bg-emerald-50 text-emerald-950 shadow-sm"
+          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+      }`}
+    >
       <input
         type="radio"
         name={name}
@@ -120,10 +126,32 @@ function DecisionOption<TDecision extends string>({
 
 function ViewOnlyCard({ title, message }: { title: string; message: string }) {
   return (
-    <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-      <h2 className="text-lg font-semibold text-emerald-950">{title}</h2>
+    <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+      <h2 className="text-base font-semibold text-emerald-950">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-emerald-900">{message}</p>
     </section>
+  );
+}
+
+function SectionHeader({
+  step,
+  title,
+  description,
+}: {
+  step: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-700 text-sm font-semibold text-white">
+        {step}
+      </span>
+      <div className="min-w-0">
+        <h2 className="text-lg font-semibold text-slate-950">{title}</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -132,11 +160,17 @@ export function ReviewDecisionClient({
   hasAudio,
   translationStatus,
   audioStatus,
+  initialTargetText,
+  initialFinalTtsText,
+  mode = "all",
 }: {
   recordId: string;
   hasAudio: boolean;
   translationStatus: TranslationStatus;
   audioStatus: AudioStatus;
+  initialTargetText: string;
+  initialFinalTtsText: string;
+  mode?: "all" | "translation" | "audio";
 }) {
   const router = useRouter();
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -147,12 +181,19 @@ export function ReviewDecisionClient({
     useState<TranslationReviewDecision>("approved");
   const [translationReason, setTranslationReason] = useState("");
   const [translationComments, setTranslationComments] = useState("");
+  const [targetText, setTargetText] = useState(initialTargetText);
+  const [finalTtsText, setFinalTtsText] = useState(initialFinalTtsText);
   const [audioDecision, setAudioDecision] =
     useState<AudioReviewDecision>("approved");
   const [audioReason, setAudioReason] = useState("");
   const [audioComments, setAudioComments] = useState("");
   const translationLocked = translationStatus === "approved";
   const audioLocked = audioStatus === "approved";
+  const showTranslationReview = mode === "all" || mode === "translation";
+  const showAudioReview = mode === "all" || mode === "audio";
+  const translationTextChanged =
+    targetText.trim() !== initialTargetText.trim() ||
+    finalTtsText.trim() !== initialFinalTtsText.trim();
 
   function showNotice(nextNotice: Notice) {
     setNotice(nextNotice);
@@ -170,6 +211,24 @@ export function ReviewDecisionClient({
       return;
     }
 
+    if (!targetText.trim()) {
+      showNotice({
+        kind: "error",
+        title: "Translation text is empty",
+        message: "Enter the Igbo target text before saving the review.",
+      });
+      return;
+    }
+
+    if (!finalTtsText.trim()) {
+      showNotice({
+        kind: "error",
+        title: "TTS text is empty",
+        message: "Enter the final text the teacher should read aloud.",
+      });
+      return;
+    }
+
     setSubmitting("translation");
 
     try {
@@ -180,6 +239,8 @@ export function ReviewDecisionClient({
           decision: translationDecision,
           reason: translationReason,
           comments: translationComments,
+          target_text_for_model: targetText,
+          final_igbo_tts_text: finalTtsText,
         }),
       });
       const data = (await response.json().catch(() => null)) as
@@ -193,7 +254,9 @@ export function ReviewDecisionClient({
       showNotice({
         kind: "success",
         title: "Translation review saved",
-        message: "The translation decision was saved.",
+        message: translationTextChanged
+          ? "The corrected Igbo text and review decision were saved."
+          : "The translation decision was saved.",
       });
       router.refresh();
     } catch (error) {
@@ -273,26 +336,66 @@ export function ReviewDecisionClient({
     <div className="grid gap-4">
       <FeedbackDialog notice={notice} onClose={() => setNotice(null)} />
 
-      {translationLocked ? (
+      {showTranslationReview && translationLocked ? (
         <ViewOnlyCard
           title="Translation approved"
           message="The Igbo text is locked. You can view it, but you cannot change this decision here."
         />
-      ) : (
+      ) : null}
+
+      {showTranslationReview && !translationLocked ? (
         <form
           onSubmit={submitTranslation}
-          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="grid gap-5 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
         >
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">
-              Translation review
-            </h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              This decision only affects the Igbo text.
-            </p>
+          <SectionHeader
+            step="1"
+            title="Text review"
+            description="Edit the translation text, then choose the translation decision."
+          />
+
+          <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 sm:p-4">
+            <label className="grid gap-2 text-sm font-medium text-slate-700">
+              Teacher Igbo target text
+              <textarea
+                value={targetText}
+                onChange={(event) => setTargetText(event.target.value)}
+                rows={6}
+                className="min-h-36 resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-base leading-7 text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+              />
+            </label>
+
+            <label className="grid gap-2 text-sm font-medium text-slate-700">
+              Final Igbo TTS text
+              <textarea
+                value={finalTtsText}
+                onChange={(event) => setFinalTtsText(event.target.value)}
+                rows={4}
+                className="min-h-28 resize-y rounded-md border border-slate-300 bg-white px-3 py-3 text-base leading-7 text-slate-950 outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-100"
+              />
+            </label>
+
+            {translationTextChanged ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
+                These edits will replace the saved translation text. If the TTS
+                text changes, existing audio may need a new recording.
+              </p>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => {
+                setTargetText(initialTargetText);
+                setFinalTtsText(initialFinalTtsText);
+              }}
+              disabled={!translationTextChanged || submitting === "translation"}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 sm:w-max"
+            >
+              Reset text changes
+            </button>
           </div>
 
-          <div className="grid gap-2">
+          <div className="grid gap-2 sm:grid-cols-3">
             <DecisionOption
               name="translation-decision"
               value="approved"
@@ -350,29 +453,30 @@ export function ReviewDecisionClient({
           <button
             type="submit"
             disabled={submitting === "translation"}
-            className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {submitting === "translation" ? "Saving..." : "Save translation review"}
           </button>
         </form>
-      )}
+      ) : null}
 
-      {audioLocked ? (
+      {showAudioReview && audioLocked ? (
         <ViewOnlyCard
           title="Audio approved"
           message="The recording is locked. You can listen to it, but you cannot change this decision here."
         />
-      ) : (
+      ) : null}
+
+      {showAudioReview && !audioLocked ? (
         <form
           onSubmit={submitAudio}
-          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
         >
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">Audio review</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              This decision only affects the recording.
-            </p>
-          </div>
+          <SectionHeader
+            step="2"
+            title="Audio review"
+            description="Choose an audio decision after listening to the current recording."
+          />
 
           <div className="grid gap-2">
             <DecisionOption
@@ -437,7 +541,7 @@ export function ReviewDecisionClient({
             {submitting === "audio" ? "Saving..." : "Save audio review"}
           </button>
         </form>
-      )}
+      ) : null}
     </div>
   );
 }

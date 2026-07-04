@@ -634,6 +634,29 @@ function teacherAccessQuery(user: PublicUser) {
   };
 }
 
+function teacherActionQueueFilter(): Filter<ContentRecordDocument> {
+  return {
+    $nor: [
+      {
+        "review.translation_status": "approved",
+        "review.audio_status": "approved",
+      },
+      {
+        "review.translation_status": {
+          $nin: ["rejected", "needs_revision"],
+        },
+        "review.audio_status": {
+          $nin: ["rejected", "needs_rerecording"],
+        },
+        $or: [
+          { "review.translation_status": "submitted" },
+          { "review.audio_status": "submitted" },
+        ],
+      },
+    ],
+  };
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -743,13 +766,14 @@ function taskStatusFilter(
     case "in_progress":
       return {
         "review.translation_status": {
-          $nin: ["submitted", "approved", "rejected", "needs_revision"],
+          $nin: ["submitted", "rejected", "needs_revision"],
         },
         "review.audio_status": {
           $nin: ["submitted", "approved", "rejected", "needs_rerecording"],
         },
         $or: [
           { "review.translation_status": "draft" },
+          { "review.audio_status": "uploaded" },
           { "target_content.target_text_for_model": { $ne: "" } },
         ],
       };
@@ -861,6 +885,7 @@ function teacherTaskQuery(input: {
 }) {
   return andFilters([
     teacherAccessQuery(input.user) as Filter<ContentRecordDocument>,
+    teacherActionQueueFilter(),
     pageCursorFilter({ cursor: input.cursor, direction: input.direction }),
     textSearchFilter(input.filters?.q),
     statusSearchFilter(input.filters),
@@ -1208,6 +1233,8 @@ export async function reviewTranslation(input: {
   decision: TranslationReviewDecision;
   reason?: string;
   comments?: string;
+  target_text_for_model?: string;
+  final_igbo_tts_text?: string;
 }) {
   const collection = await getContentCollection();
   const record = await collection.findOne(recordLookupQuery(input.id));
@@ -1224,15 +1251,76 @@ export async function reviewTranslation(input: {
     throw new Error("This translation is already approved and can only be viewed.");
   }
 
+  const targetText =
+    input.target_text_for_model === undefined
+      ? record.target_content.target_text_for_model.trim()
+      : input.target_text_for_model.trim();
+  const finalTtsText =
+    input.final_igbo_tts_text === undefined
+      ? record.target_content.final_igbo_tts_text.trim()
+      : input.final_igbo_tts_text.trim();
+
+  if (!targetText) {
+    throw new Error("Teacher Igbo target text is required.");
+  }
+
+  if (!finalTtsText) {
+    throw new Error("Final Igbo TTS text is required.");
+  }
+
+  const placeholderErrors = validateTargetPlaceholders({
+    source_text_for_model: record.source_content.source_text_for_model,
+    target_text_for_model: targetText,
+  });
+
+  if (placeholderErrors.length) {
+    throw new Error(placeholderErrors.join(" "));
+  }
+
+  if (extractPlaceholders(finalTtsText).length) {
+    throw new Error(
+      "Final Igbo TTS text should use spoken words, not placeholder chips.",
+    );
+  }
+
+  const glossaryUsages = detectGlossaryTerms({
+    original_english: record.source_content.original_english,
+    simplified_english: record.source_content.simplified_english,
+    topic: record.curriculum.topic,
+    subtopic: record.curriculum.subtopic,
+    target_style: record.curriculum.target_style as TargetStyle,
+  });
+  const glossaryValidation = validateGlossaryTranslation({
+    target_translation: targetText,
+    usages: glossaryUsages,
+    strict: false,
+  });
+  const glossaryErrors = glossaryValidation.issues.filter(
+    (issue) => issue.severity === "error",
+  );
+
+  if (glossaryErrors.length) {
+    throw new Error(glossaryErrors.map((issue) => issue.message).join(" "));
+  }
+
   const nextTranslationStatus: TranslationStatus = input.decision;
+  const audioBecomesStale =
+    Boolean(record.audio?.current_audio_id) &&
+    Boolean(record.target_content.final_igbo_tts_text.trim()) &&
+    record.target_content.final_igbo_tts_text.trim() !== finalTtsText;
+  const nextAudioStatus: AudioStatus = audioBecomesStale
+    ? "needs_rerecording"
+    : record.review.audio_status;
   const nextMathStatus = approvedMathStatusForReview({
     record,
     translation_status: nextTranslationStatus,
-    audio_status: record.review.audio_status,
+    audio_status: nextAudioStatus,
   });
   const nextOverall = overallStatusForRecord(record, {
     translation_status: nextTranslationStatus,
+    audio_status: nextAudioStatus,
     math_status: nextMathStatus,
+    has_target_text: true,
   });
   const now = new Date();
   const event = reviewEvent({
@@ -1244,28 +1332,50 @@ export async function reviewTranslation(input: {
     reviewer: input.user,
     reviewed_at: now,
   });
+  const textChanged =
+    record.target_content.target_text_for_model.trim() !== targetText ||
+    record.target_content.final_igbo_tts_text.trim() !== finalTtsText;
+  const setPatch: Record<string, unknown> = {
+    ...mathApprovalPatch({ record, next_math_status: nextMathStatus }),
+    "target_content.target_text_for_model": targetText,
+    "target_content.final_igbo_tts_text": finalTtsText,
+    "review.translation_status": nextTranslationStatus,
+    "review.translation_comments": input.comments?.trim() ?? "",
+    "review.overall_status": nextOverall,
+    "export.translation_exportable": nextTranslationStatus === "approved",
+    "export.tts_exportable":
+      nextTranslationStatus === "approved" && nextAudioStatus === "approved",
+    "audit.updated_at": now,
+  };
+
+  if (audioBecomesStale) {
+    setPatch["review.audio_status"] = nextAudioStatus;
+    setPatch["audio.versions.$[audioVersion].status"] = nextAudioStatus;
+    setPatch["audio.versions.$[audioVersion].review_comment"] =
+      "Text changed during translation review.";
+  }
 
   await collection.updateOne(
     { _id: record._id },
     {
-      $set: {
-        ...mathApprovalPatch({ record, next_math_status: nextMathStatus }),
-        "review.translation_status": nextTranslationStatus,
-        "review.translation_comments": input.comments?.trim() ?? "",
-        "review.overall_status": nextOverall,
-        "export.translation_exportable": nextTranslationStatus === "approved",
-        "export.tts_exportable":
-          nextTranslationStatus === "approved" &&
-          record.review.audio_status === "approved",
-        "audit.updated_at": now,
-      },
+      $set: setPatch,
+      ...(textChanged ? { $inc: { "target_content.version": 1 } } : {}),
       $push: {
         review_events: event,
       },
     },
+    audioBecomesStale && record.audio?.current_audio_id
+      ? {
+          arrayFilters: [{ "audioVersion.audio_id": record.audio.current_audio_id }],
+        }
+      : undefined,
   );
 
-  return { translation_status: nextTranslationStatus, overall_status: nextOverall };
+  return {
+    translation_status: nextTranslationStatus,
+    audio_status: nextAudioStatus,
+    overall_status: nextOverall,
+  };
 }
 
 export async function reviewAudio(input: {
