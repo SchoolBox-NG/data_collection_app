@@ -3,12 +3,14 @@ import Link from "next/link";
 import { AccessShell } from "@/components/AccessShell";
 import { requireRole } from "@/lib/auth/guards";
 import {
+  getTeacherTaskStats,
   listTeacherTasks,
   type AudioStatus,
   type MathStatus,
   type TeacherTaskPage,
   type TeacherTaskPageDirection,
   type TeacherTaskSearchFilters,
+  type TeacherTaskStats,
   type TeacherTaskStatus,
   type TeacherTaskSummary,
   type TranslationStatus,
@@ -180,6 +182,46 @@ function StatusBadge({ status }: { status: TeacherTaskStatus }) {
     >
       {taskStatusLabels[status]}
     </span>
+  );
+}
+
+function TeacherProgressSummary({ stats }: { stats: TeacherTaskStats }) {
+  const items = [
+    {
+      label: "Completed",
+      value: stats.completed,
+      helper: "Fully approved tasks",
+      styles: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    },
+    {
+      label: "Pending review",
+      value: stats.pending,
+      helper: "Submitted to reviewer",
+      styles: "border-amber-200 bg-amber-50 text-amber-900",
+    },
+    {
+      label: "Needs correction",
+      value: stats.rejected,
+      helper: "Rejected or needs revision",
+      styles: "border-red-200 bg-red-50 text-red-900",
+    },
+  ];
+
+  return (
+    <section className="grid gap-3 sm:grid-cols-3">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className={`rounded-lg border p-4 shadow-sm ${item.styles}`}
+        >
+          <p className="text-sm font-semibold">{item.label}</p>
+          <p className="mt-2 text-3xl font-semibold tracking-normal">
+            {item.value.toLocaleString()}
+          </p>
+          <p className="mt-1 text-sm opacity-80">{item.helper}</p>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -428,17 +470,22 @@ export default async function TeacherTasksPage({
   const user = await requireRole(["igbo_teacher"]);
   const params = await searchParams;
   const filters = parseTeacherFilters(params);
-  const taskPage = await listTeacherTasks(user, {
-    cursor: params.cursor,
-    direction: parseDirection(params.direction),
-    pageSize: parsePageSize(params.pageSize),
-    filters,
-  });
+  const [taskPage, stats] = await Promise.all([
+    listTeacherTasks(user, {
+      cursor: params.cursor,
+      direction: parseDirection(params.direction),
+      pageSize: parsePageSize(params.pageSize),
+      filters,
+    }),
+    getTeacherTaskStats(user),
+  ]);
   const tasks = taskPage.tasks;
   const hasFilters = hasTeacherFilters(filters);
 
   return (
     <AccessShell user={user} eyebrow="Teacher" title="Teacher tasks">
+      <TeacherProgressSummary stats={stats} />
+
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
           <h2 className="text-lg font-semibold text-slate-950">Assigned content</h2>

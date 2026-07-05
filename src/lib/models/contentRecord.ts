@@ -226,6 +226,12 @@ export type TeacherTaskPage = {
   pageSize: number;
 };
 
+export type TeacherTaskStats = {
+  completed: number;
+  pending: number;
+  rejected: number;
+};
+
 export type TeacherTaskPageDirection = "next" | "previous";
 
 export type StatusSearchFilters = {
@@ -657,6 +663,37 @@ function teacherActionQueueFilter(): Filter<ContentRecordDocument> {
   };
 }
 
+function teacherCompletedTaskFilter(): Filter<ContentRecordDocument> {
+  return {
+    "review.translation_status": "approved",
+    "review.audio_status": "approved",
+  };
+}
+
+function teacherPendingReviewFilter(): Filter<ContentRecordDocument> {
+  return {
+    "review.translation_status": {
+      $nin: ["rejected", "needs_revision"],
+    },
+    "review.audio_status": {
+      $nin: ["rejected", "needs_rerecording"],
+    },
+    $or: [
+      { "review.translation_status": "submitted" },
+      { "review.audio_status": "submitted" },
+    ],
+  };
+}
+
+function teacherRejectedTaskFilter(): Filter<ContentRecordDocument> {
+  return {
+    $or: [
+      { "review.translation_status": { $in: ["rejected", "needs_revision"] } },
+      { "review.audio_status": { $in: ["rejected", "needs_rerecording"] } },
+    ],
+  };
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -956,6 +993,30 @@ export async function listTeacherTasks(
           ? firstRecord?._id.toString() ?? null
           : null,
     pageSize,
+  };
+}
+
+export async function getTeacherTaskStats(
+  user: PublicUser,
+): Promise<TeacherTaskStats> {
+  const collection = await getContentCollection();
+  const accessFilter = teacherAccessQuery(user) as Filter<ContentRecordDocument>;
+  const [completed, pending, rejected] = await Promise.all([
+    collection.countDocuments(
+      andFilters([accessFilter, teacherCompletedTaskFilter()]),
+    ),
+    collection.countDocuments(
+      andFilters([accessFilter, teacherPendingReviewFilter()]),
+    ),
+    collection.countDocuments(
+      andFilters([accessFilter, teacherRejectedTaskFilter()]),
+    ),
+  ]);
+
+  return {
+    completed,
+    pending,
+    rejected,
   };
 }
 
