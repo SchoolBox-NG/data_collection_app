@@ -890,6 +890,29 @@ function validateTargetPlaceholders(input: {
   return errors;
 }
 
+function validateSourcePlaceholders(input: {
+  source_text_for_model: string;
+  math_items: MathItem[];
+}) {
+  const placeholders = extractPlaceholders(input.source_text_for_model);
+  const knownPlaceholders = new Set(
+    input.math_items.map((item) => item.placeholder),
+  );
+  const unknownPlaceholders = Array.from(
+    new Set(
+      placeholders.filter((placeholder) => !knownPlaceholders.has(placeholder)),
+    ),
+  );
+
+  if (!unknownPlaceholders.length) {
+    return [];
+  }
+
+  return unknownPlaceholders.map(
+    (placeholder) => `${placeholder} is not in this record's math map.`,
+  );
+}
+
 function normalizePageSize(value?: number) {
   if (!value || !Number.isFinite(value)) {
     return DEFAULT_TEACHER_TASK_PAGE_SIZE;
@@ -1138,6 +1161,65 @@ export async function getReviewRecord(id: string) {
   const record = await collection.findOne(recordLookupQuery(id));
 
   return record ? serializeReviewRecordDetail(record) : null;
+}
+
+export async function updateReviewSourceText(input: {
+  id: string;
+  source_text_for_model: string;
+}) {
+  const collection = await getContentCollection();
+  const record = await collection.findOne(recordLookupQuery(input.id));
+
+  if (!record) {
+    throw new Error("Record was not found.");
+  }
+
+  const sourceText = input.source_text_for_model.trim();
+
+  if (!sourceText) {
+    throw new Error("Source text for model is required.");
+  }
+
+  const sourcePlaceholderErrors = validateSourcePlaceholders({
+    source_text_for_model: sourceText,
+    math_items: record.math.items,
+  });
+
+  if (sourcePlaceholderErrors.length) {
+    throw new Error(sourcePlaceholderErrors.join(" "));
+  }
+
+  if (record.target_content.target_text_for_model.trim()) {
+    const targetPlaceholderErrors = validateTargetPlaceholders({
+      source_text_for_model: sourceText,
+      target_text_for_model: record.target_content.target_text_for_model,
+    });
+
+    if (targetPlaceholderErrors.length) {
+      throw new Error(
+        `The saved Igbo translation does not match the edited source placeholders. ${targetPlaceholderErrors.join(
+          " ",
+        )}`,
+      );
+    }
+  }
+
+  const now = new Date();
+
+  await collection.updateOne(
+    { _id: record._id },
+    {
+      $set: {
+        "source_content.source_text_for_model": sourceText,
+        "audit.updated_at": now,
+      },
+    },
+  );
+
+  return {
+    source_text_for_model: sourceText,
+    updated_at: now.toISOString(),
+  };
 }
 
 export function calculateOverallRecordStatus(input: {

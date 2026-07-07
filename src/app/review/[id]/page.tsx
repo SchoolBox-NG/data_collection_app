@@ -3,10 +3,7 @@ import { notFound } from "next/navigation";
 import { type ReactNode } from "react";
 
 import { AccessShell } from "@/components/AccessShell";
-import {
-  MathPlaceholderPreview,
-  PlaceholderChip,
-} from "@/components/MathPlaceholderPreview";
+import { PlaceholderChip } from "@/components/MathPlaceholderPreview";
 import { requireRole } from "@/lib/auth/guards";
 import {
   getReviewRecord,
@@ -16,6 +13,7 @@ import {
   type TranslationStatus,
 } from "@/lib/models/contentRecord";
 import { ReviewDecisionClient } from "./ReviewDecisionClient";
+import { SourceTextEditorClient } from "./SourceTextEditorClient";
 
 export const dynamic = "force-dynamic";
 
@@ -385,8 +383,14 @@ export default async function ReviewDetailPage({
     notFound();
   }
 
+  const canEditSourceText = user.roles.includes("admin");
+
   return (
-    <AccessShell user={user} eyebrow="Reviewer" title={record.record_id}>
+    <AccessShell
+      user={user}
+      eyebrow={canEditSourceText ? "Admin review" : "Reviewer"}
+      title={record.record_id}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link
           href="/review"
@@ -419,18 +423,12 @@ export default async function ReviewDetailPage({
                 value={record.simplified_english}
               />
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-950">
-                Source text for model
-              </p>
-              <MathPlaceholderPreview
-                text={record.source_text_for_model}
-                mathItems={record.math_items}
-              />
-              <p className="mt-2 break-words rounded-md bg-slate-100 px-3 py-2 font-mono text-xs leading-5 text-slate-700">
-                {record.source_text_for_model}
-              </p>
-            </div>
+            <SourceTextEditorClient
+              recordId={record.id}
+              initialSourceText={record.source_text_for_model}
+              mathItems={record.math_items}
+              canEdit={canEditSourceText}
+            />
             <MathMap record={record} />
           </SectionCard>
 
